@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ตรวจสอบใบรับรองอบรม</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    max-width: 480px; margin: 0 auto; padding: 24px 16px 60px;
+    color: #222; background: #f7f8fa; min-height: 100vh;
+  }
+  h1 { font-size: 18px; text-align: center; margin: 12px 0 20px; }
+  p.sub { color: #555; font-size: 14px; text-align: center; }
+  input {
+    width: 100%; padding: 10px; font-size: 16px; margin: 12px 0;
+    border: 1px solid #ddd; border-radius: 8px; transition: border-color .15s ease;
+  }
+  input:focus { outline: none; border-color: #06c755; }
+  button, .menuBtn {
+    display: block; width: 100%; padding: 12px; font-size: 16px;
+    background: #06c755; color: #fff; border: none; border-radius: 8px;
+    text-decoration: none; margin-bottom: 10px; cursor: pointer;
+    transition: background-color .15s ease, transform .1s ease;
+  }
+  button:hover, .menuBtn:hover { background: #05a648; }
+  button:active, .menuBtn:active { transform: scale(.98); }
+  button:disabled { background: #aaa; cursor: default; }
+  .backLink {
+    display: block; text-align: center; margin-top: 16px; color: #555;
+    font-size: 14px; text-decoration: none; cursor: pointer; transition: color .15s ease;
+  }
+  .backLink:hover { color: #06c755; }
+  .error { color: #c0392b; font-size: 14px; text-align: center; }
+  .card {
+    background: #fff; border-radius: 14px; padding: 16px 18px; margin-bottom: 12px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.06); transition: box-shadow .15s ease, transform .15s ease;
+  }
+  .card:hover { box-shadow: 0 4px 12px rgba(0,0,0,.08); transform: translateY(-1px); }
+  .card .name { font-size: 15px; font-weight: 600; }
+  .card .sub2 { font-size: 13px; color: #888; margin-top: 2px; }
+  .card .row { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; }
+  .card .expiryDate { font-size: 13px; color: #555; }
+  .pill { display: inline-block; padding: 4px 12px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+  .pill.ok { background: #e6f9ee; color: #06c755; }
+  .pill.bad { background: #fdeceb; color: #c0392b; }
+  .emptyState { text-align: center; color: #888; padding: 40px 0; font-size: 14px; }
+  #app { animation: fadeIn .2s ease; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script>
+  // แก้ค่านี้ถ้า deploy Apps Script เวอร์ชันใหม่ (URL เปลี่ยน)
+  var APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxUYMJGL3qm0_FwOGYEB80i8myQlWdo9i_8ezy_MrRedaFJBm336gcrRX9mjA5tSTZU/exec';
+  var NEAR_EXPIRY_DAYS = 30;
+
+  var state = { phone: '', name: '', records: [] };
+  var appEl = document.getElementById('app');
+
+  function escapeHtml(text) {
+    return String(text || '').replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  function daysUntil(dateStr) {
+    var today = new Date(); today.setHours(0, 0, 0, 0);
+    var target = new Date(dateStr); target.setHours(0, 0, 0, 0);
+    return Math.round((target - today) / 86400000);
+  }
+
+  function formatDate(dateStr) {
+    var d = new Date(dateStr);
+    var dd = String(d.getDate()).padStart(2, '0');
+    var mm = String(d.getMonth() + 1).padStart(2, '0');
+    return dd + '/' + mm + '/' + d.getFullYear();
+  }
+
+  // เรียก Apps Script แบบ JSONP (script tag ธรรมดา ไม่ใช้ fetch เพราะ Apps Script ไม่ส่ง CORS header)
+  function callJsonp(params, callback) {
+    var cbName = 'cb_' + Date.now() + '_' + Math.floor(Math.random() * 10000);
+    window[cbName] = function (result) {
+      delete window[cbName];
+      document.body.removeChild(scriptTag);
+      callback(result);
+    };
+    var qs = Object.keys(params).map(function (k) {
+      return encodeURIComponent(k) + '=' + encodeURIComponent(params[k]);
+    }).join('&');
+    var scriptTag = document.createElement('script');
+    scriptTag.src = APPS_SCRIPT_URL + '?jsonp=1&callback=' + cbName + '&' + qs;
+    scriptTag.onerror = function () {
+      delete window[cbName];
+      callback({ ok: false, message: 'เชื่อมต่อเซิร์ฟเวอร์ไม่สำเร็จ กรุณาลองใหม่' });
+    };
+    document.body.appendChild(scriptTag);
+  }
+
+  function render(html) {
+    appEl.style.animation = 'none';
+    appEl.offsetHeight; // reflow เพื่อ retrigger animation
+    appEl.style.animation = 'fadeIn .2s ease';
+    appEl.innerHTML = html;
+  }
+
+  function renderLogin(errorMsg) {
+    render(
+      '<h1>ตรวจสอบใบรับรองอบรม</h1>' +
+      '<p class="sub">กรอกเบอร์โทรที่ HR ลงทะเบียนไว้</p>' +
+      '<input type="tel" id="phoneInput" placeholder="เบอร์โทร">' +
+      '<button id="loginBtn">เข้าสู่ระบบ</button>' +
+      (errorMsg ? '<p class="error">' + escapeHtml(errorMsg) + '</p>' : '')
+    );
+    document.getElementById('loginBtn').onclick = doLogin;
+    document.getElementById('phoneInput').addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') doLogin();
+    });
+  }
+
+  function doLogin() {
+    var phone = document.getElementById('phoneInput').value.trim();
+    if (!phone) { renderLogin('กรุณากรอกเบอร์โทร'); return; }
+    var btn = document.getElementById('loginBtn');
+    btn.disabled = true;
+    btn.textContent = 'กำลังตรวจสอบ...';
+
+    callJsonp({ action: 'login', phone: phone }, function (result) {
+      if (!result.ok) {
+        renderLogin(result.message);
+        return;
+      }
+      state.phone = phone;
+      state.name = result.name;
+      state.records = result.records;
+      renderMenu();
+    });
+  }
+
+  function renderMenu() {
+    render(
+      '<h1>สวัสดี ' + escapeHtml(state.name) + '</h1>' +
+      '<a class="menuBtn" onclick="renderSummary()">1. ดูวันหมดอายุแบบย่อ (ทุกคน)</a>' +
+      '<a class="menuBtn" onclick="renderNear30()">2. คนใกล้หมดอายุ (&lt; ' + NEAR_EXPIRY_DAYS + ' วัน)</a>' +
+      '<a class="menuBtn" onclick="renderDetail()">3. ดูรายละเอียดทั้งหมด</a>'
+    );
+  }
+
+  function backLinkHtml() {
+    return '<a class="backLink" onclick="renderMenu()">&larr; กลับไปเมนู</a>';
+  }
+
+  function renderSummary() {
+    var rows = state.records.map(function (r) {
+      var days = r.expiryDate ? daysUntil(r.expiryDate) : null;
+      var daysText = days === null ? '-' : (days < 0 ? ('หมดอายุแล้ว ' + Math.abs(days) + ' วัน') : (days + ' วัน'));
+      var isExpired = days !== null && days < 0;
+      return '<div class="card"><div class="row" style="margin-top:0;">' +
+        '<span class="name">' + escapeHtml(r.name) + '</span>' +
+        '<span class="pill ' + (isExpired ? 'bad' : 'ok') + '">' + daysText + '</span>' +
+        '</div></div>';
+    }).join('');
+    render('<h1>วันหมดอายุแบบย่อ (ทุกคน)</h1>' + (rows || '<div class="emptyState">ไม่มีข้อมูล</div>') + backLinkHtml());
+  }
+
+  function renderNear30() {
+    var filtered = state.records.filter(function (r) {
+      return r.expiryDate && daysUntil(r.expiryDate) < NEAR_EXPIRY_DAYS;
+    });
+    var cards = filtered.map(function (r) {
+      var days = daysUntil(r.expiryDate);
+      var daysText = days < 0 ? ('หมดอายุแล้ว ' + Math.abs(days) + ' วัน') : (days + ' วัน');
+      return '<div class="card">' +
+        '<div class="name">' + escapeHtml(r.name) + '</div>' +
+        '<div class="sub2">' + escapeHtml(r.department) + ' &middot; ' + escapeHtml(r.course) + '</div>' +
+        '<div class="row">' +
+        '<span class="expiryDate">หมดอายุ ' + formatDate(r.expiryDate) + '</span>' +
+        '<span class="pill bad">' + daysText + '</span>' +
+        '</div></div>';
+    }).join('');
+    render('<h1>คนใกล้หมดอายุ (&lt; ' + NEAR_EXPIRY_DAYS + ' วัน)</h1>' +
+      (cards || '<div class="emptyState">ไม่มีรายการ</div>') + backLinkHtml());
+  }
+
+  function renderDetail() {
+    var cards = state.records.map(function (r) {
+      var isExpired = (r.certStatus || '').indexOf('หมดอายุ') !== -1;
+      var expiryText = r.expiryDate ? formatDate(r.expiryDate) : '-';
+      return '<div class="card">' +
+        '<div class="name">' + escapeHtml(r.name) + '</div>' +
+        '<div class="sub2">' + escapeHtml(r.department) + ' &middot; ' + escapeHtml(r.course) + '</div>' +
+        '<div class="row">' +
+        '<span class="expiryDate">หมดอายุ ' + expiryText + '</span>' +
+        '<span class="pill ' + (isExpired ? 'bad' : 'ok') + '">' + escapeHtml(r.certStatus) + '</span>' +
+        '</div></div>';
+    }).join('');
+    render('<h1>รายละเอียดทั้งหมด</h1>' + (cards || '<div class="emptyState">ไม่มีข้อมูล</div>') + backLinkHtml());
+  }
+
+  // เปิดหน้านี้พร้อม ?phone=0812345678 จะข้ามหน้า login ไปเลย (ใช้ทำลิงก์ส่วนตัวจากแชทได้)
+  (function init() {
+    var params = new URLSearchParams(window.location.search);
+    var presetPhone = params.get('phone');
+    if (presetPhone) {
+      renderLogin();
+      document.getElementById('phoneInput').value = presetPhone;
+      doLogin();
+    } else {
+      renderLogin();
+    }
+  })();
+</script>
+</body>
+</html>
