@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ยืนยันตัวตน</title>
+<style>
+  body { font-family: sans-serif; max-width: 340px; margin: 60px auto; padding: 0 16px; text-align: center; color: #222; }
+  h1 { font-size: 18px; }
+  p { color: #555; font-size: 14px; }
+  input { width: 100%; padding: 10px; font-size: 16px; margin: 12px 0; box-sizing: border-box; }
+  button { width: 100%; padding: 12px; font-size: 16px; background: #06c755; color: #fff; border: none; border-radius: 8px; }
+  button:disabled { background: #aaa; }
+  #msg { margin-top: 16px; font-size: 14px; color: #c0392b; }
+  #loading { color: #555; font-size: 14px; }
+</style>
+</head>
+<body>
+<div id="loading">กำลังเชื่อมต่อ LINE...</div>
+
+<form id="phoneForm" style="display:none;">
+  <h1>ยืนยันตัวตน (HR)</h1>
+  <p>กรอกเบอร์โทรที่ HR ลงทะเบียนไว้ล่วงหน้า</p>
+  <input type="tel" id="phone" placeholder="เบอร์โทร" required>
+  <button type="submit" id="submitBtn">ยืนยันตัวตน</button>
+</form>
+
+<div id="msg"></div>
+
+<!--
+  แก้ 2 ค่านี้ก่อนอัปโหลดขึ้น GitHub Pages:
+  1. LIFF_ID           = LIFF ID จาก LINE Developers Console
+  2. APPS_SCRIPT_URL    = Web app exec URL ของ Apps Script (อันเดียวกับที่ตั้งไว้ใน Deploy)
+-->
+<script>
+  var LIFF_ID = '2011052337-giKlgaCa';
+  var APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxUYMJGL3qm0_FwOGYEB80i8myQlWdo9i_8ezy_MrRedaFJBm336gcrRX9mjA5tSTZU/exec';
+</script>
+
+<script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<script>
+  var loadingEl = document.getElementById('loading');
+  var formEl = document.getElementById('phoneForm');
+  var msgEl = document.getElementById('msg');
+  var submitBtn = document.getElementById('submitBtn');
+  var currentUserId = null;
+  var currentName = null;
+
+  var initTimeout = setTimeout(function () {
+    loadingEl.style.display = 'none';
+    msgEl.textContent = 'เชื่อมต่อ LINE ช้าผิดปกติ (timeout 10 วิ) ลองปิดหน้านี้แล้วเปิดลิงก์ใหม่อีกครั้ง';
+  }, 10000);
+
+  try {
+    liff.init({ liffId: LIFF_ID })
+      .then(function () {
+        if (!liff.isLoggedIn()) {
+          liff.login();
+          return;
+        }
+        return liff.getProfile();
+      })
+      .then(function (profile) {
+        clearTimeout(initTimeout);
+        if (!profile) return;
+        currentUserId = profile.userId;
+        currentName = profile.displayName || '';
+        loadingEl.style.display = 'none';
+        formEl.style.display = 'block';
+      })
+      .catch(function (err) {
+        clearTimeout(initTimeout);
+        loadingEl.style.display = 'none';
+        msgEl.textContent = 'เชื่อมต่อ LINE ไม่สำเร็จ: ' + err;
+      });
+  } catch (err) {
+    clearTimeout(initTimeout);
+    loadingEl.style.display = 'none';
+    msgEl.textContent = 'โหลด LINE SDK ไม่สำเร็จ: ' + err;
+  }
+
+  // เรียก Apps Script แบบ JSONP (script tag ธรรมดา ไม่ใช้ fetch/XHR)
+  // เพราะ Apps Script ไม่ส่ง CORS header ให้ fetch ข้ามโดเมนอ่านผลลัพธ์ได้
+  function callAppsScriptJsonp_(params, callback) {
+    var callbackName = 'liffAuthCb_' + Date.now();
+    window[callbackName] = function (result) {
+      delete window[callbackName];
+      document.body.removeChild(script);
+      callback(result);
+    };
+
+    var qs = Object.keys(params).map(function (k) {
+      return encodeURIComponent(k) + '=' + encodeURIComponent(params[k]);
+    }).join('&');
+
+    var script = document.createElement('script');
+    script.src = APPS_SCRIPT_URL + '?jsonp=1&callback=' + callbackName + '&' + qs;
+    script.onerror = function () {
+      delete window[callbackName];
+      msgEl.textContent = 'เรียกเซิร์ฟเวอร์ไม่สำเร็จ กรุณาลองใหม่';
+      submitBtn.disabled = false;
+    };
+    document.body.appendChild(script);
+  }
+
+  formEl.onsubmit = function (e) {
+    e.preventDefault();
+    var phone = document.getElementById('phone').value.trim();
+    if (!phone || !currentUserId) return;
+
+    submitBtn.disabled = true;
+    msgEl.style.color = '#555';
+    msgEl.textContent = 'กำลังยืนยันตัวตน...';
+
+    callAppsScriptJsonp_({
+      liffAuth: '1',
+      userId: currentUserId,
+      name: currentName,
+      phone: phone
+    }, function (result) {
+      if (result.ok) {
+        msgEl.style.color = '#06c755';
+        msgEl.textContent = result.message + ' กำลังปิดหน้าต่าง...';
+        setTimeout(function () {
+          liff.closeWindow();
+        }, 1200);
+      } else {
+        msgEl.style.color = '#c0392b';
+        msgEl.textContent = result.message;
+        submitBtn.disabled = false;
+      }
+    });
+  };
+</script>
+</body>
+</html>
