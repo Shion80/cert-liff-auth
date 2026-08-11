@@ -56,6 +56,7 @@
 <script>
   // แก้ค่านี้ถ้า deploy Apps Script เวอร์ชันใหม่ (URL เปลี่ยน)
   var APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxUYMJGL3qm0_FwOGYEB80i8myQlWdo9i_8ezy_MrRedaFJBm336gcrRX9mjA5tSTZU/exec';
+  var SHEET_URL = 'https://docs.google.com/spreadsheets/d/1EQZUzYIrbVn6IZ_-Roc51bmacTajnY4hbCz97ZtvAbA/edit';
   var NEAR_EXPIRY_DAYS = 30;
 
   var state = { phone: '', name: '', records: [] };
@@ -145,7 +146,7 @@
       '<h1>สวัสดี ' + escapeHtml(state.name) + '</h1>' +
       '<a class="menuBtn" onclick="renderSummary()">1. ดูวันหมดอายุแบบย่อ (ทุกคน)</a>' +
       '<a class="menuBtn" onclick="renderNear30()">2. คนใกล้หมดอายุ (&lt; ' + NEAR_EXPIRY_DAYS + ' วัน)</a>' +
-      '<a class="menuBtn" onclick="renderDetail()">3. ดูรายละเอียดทั้งหมด</a>'
+      '<a class="menuBtn" href="' + SHEET_URL + '" target="_blank" rel="noopener">3. ดูรายละเอียดทั้งหมด (เปิด Google Sheet)</a>'
     );
   }
 
@@ -153,17 +154,20 @@
     return '<a class="backLink" onclick="renderMenu()">&larr; กลับไปเมนู</a>';
   }
 
+  // เดิมเป็นแบบย่อ (ชื่อ + จำนวนวัน) ตอนนี้ใช้เนื้อหาแบบเดียวกับที่ "ดูรายละเอียดทั้งหมด" เคยแสดง
   function renderSummary() {
-    var rows = state.records.map(function (r) {
-      var days = r.expiryDate ? daysUntil(r.expiryDate) : null;
-      var daysText = days === null ? '-' : (days < 0 ? ('หมดอายุแล้ว ' + Math.abs(days) + ' วัน') : (days + ' วัน'));
-      var isExpired = days !== null && days < 0;
-      return '<div class="card"><div class="row" style="margin-top:0;">' +
-        '<span class="name">' + escapeHtml(r.name) + '</span>' +
-        '<span class="pill ' + (isExpired ? 'bad' : 'ok') + '">' + daysText + '</span>' +
+    var cards = state.records.map(function (r) {
+      var isExpired = (r.certStatus || '').indexOf('หมดอายุ') !== -1;
+      var expiryText = r.expiryDate ? formatDate(r.expiryDate) : '-';
+      return '<div class="card">' +
+        '<div class="name">' + escapeHtml(r.name) + '</div>' +
+        '<div class="sub2">' + escapeHtml(r.department) + ' &middot; ' + escapeHtml(r.course) + '</div>' +
+        '<div class="row">' +
+        '<span class="expiryDate">หมดอายุ ' + expiryText + '</span>' +
+        '<span class="pill ' + (isExpired ? 'bad' : 'ok') + '">' + escapeHtml(r.certStatus) + '</span>' +
         '</div></div>';
     }).join('');
-    render('<h1>วันหมดอายุแบบย่อ (ทุกคน)</h1>' + (rows || '<div class="emptyState">ไม่มีข้อมูล</div>') + backLinkHtml());
+    render('<h1>วันหมดอายุแบบย่อ (ทุกคน)</h1>' + (cards || '<div class="emptyState">ไม่มีข้อมูล</div>') + backLinkHtml());
   }
 
   function renderNear30() {
@@ -183,21 +187,6 @@
     }).join('');
     render('<h1>คนใกล้หมดอายุ (&lt; ' + NEAR_EXPIRY_DAYS + ' วัน)</h1>' +
       (cards || '<div class="emptyState">ไม่มีรายการ</div>') + backLinkHtml());
-  }
-
-  function renderDetail() {
-    var cards = state.records.map(function (r) {
-      var isExpired = (r.certStatus || '').indexOf('หมดอายุ') !== -1;
-      var expiryText = r.expiryDate ? formatDate(r.expiryDate) : '-';
-      return '<div class="card">' +
-        '<div class="name">' + escapeHtml(r.name) + '</div>' +
-        '<div class="sub2">' + escapeHtml(r.department) + ' &middot; ' + escapeHtml(r.course) + '</div>' +
-        '<div class="row">' +
-        '<span class="expiryDate">หมดอายุ ' + expiryText + '</span>' +
-        '<span class="pill ' + (isExpired ? 'bad' : 'ok') + '">' + escapeHtml(r.certStatus) + '</span>' +
-        '</div></div>';
-    }).join('');
-    render('<h1>รายละเอียดทั้งหมด</h1>' + (cards || '<div class="emptyState">ไม่มีข้อมูล</div>') + backLinkHtml());
   }
 
   // เปิดหน้านี้พร้อม ?phone=0812345678 จะข้ามหน้า login ไปเลย (ใช้ทำลิงก์ส่วนตัวจากแชทได้)
